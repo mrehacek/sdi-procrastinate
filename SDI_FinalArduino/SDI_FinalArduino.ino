@@ -4,25 +4,38 @@ PIN_RELAY1 = 7,
 PIN_RELAY2 = 8,
 PIN_BUZZER_TEST = 13,
 PIN_RADAR1_ECHO = A1,
-PIN_RADAR1_TRIG = A2;
+PIN_RADAR1_TRIG = A2,
+PIN_RADAR2_ECHO = A3,
+PIN_RADAR2_TRIG = A4;
 
 // piezo
 int piezo_reading = 0;
 const int PIEZO_THRESHOLD = 1.5;
 
-// ultrasonic sensor
-const unsigned int TIMER_MEASURE_RADAR = 30
-  , LAST_DISTANCE_COUNT = 8;
+// ultrasonic sensors
+const unsigned int TIMER_MEASURE_RADAR = 0
+  , LAST_DISTANCE_COUNT = 10;
 float 
-  radar_time = 0, 
-  radar_distance = 0;
-int current_last_distance = 0;
-float last_distances[LAST_DISTANCE_COUNT] = { 0 };
+  radar1_time = 0, 
+  radar1_distance = 0;
+float radar1_last_distance = 0;
+float radar1_distances[LAST_DISTANCE_COUNT] = { 0 };
+// radar2
+float 
+  radar2_time = 0, 
+  radar2_distance = 0;
+float radar2_last_distance = 0;
+float radar2_distances[LAST_DISTANCE_COUNT] = { 0 };
 
 struct timers
 {
-  unsigned long int RADAR_MEASURE;
+  unsigned long int RADAR1_MEASURE;
+  unsigned long int RADAR2_MEASURE;
 } timers = { 0 };
+
+// lights
+boolean is_relay1_on = false
+  , is_relay2_on = false;
 
 ///////////////////////////////////////////////////////////////////////////////////
 
@@ -32,6 +45,8 @@ void setup() {
   
   pinMode(PIN_RADAR1_ECHO, INPUT);
   pinMode(PIN_RADAR1_TRIG, OUTPUT);
+  pinMode(PIN_RADAR2_ECHO, INPUT);
+  pinMode(PIN_RADAR2_TRIG, OUTPUT);
   
   pinMode(PIN_RELAY1, OUTPUT);
   pinMode(PIN_RELAY2, OUTPUT);
@@ -41,61 +56,67 @@ void setup() {
 void loop() {
   unsigned long t_now = millis();
 
-  //digitalWrite(PIN_RELAY1, LOW);
-  //digitalWrite(PIN_RELAY2, LOW);
-  //digitalWrite(PIN_BUZZER_TEST, LOW);
-
   // measure radar
-  if (t_now - timers.RADAR_MEASURE >= TIMER_MEASURE_RADAR) {
+  if (t_now - timers.RADAR1_MEASURE >= TIMER_MEASURE_RADAR) {
+        timers.RADAR1_MEASURE = t_now;
         digitalWrite(PIN_RADAR1_TRIG, LOW);
         delayMicroseconds(2);
         digitalWrite(PIN_RADAR1_TRIG, HIGH);
         delayMicroseconds(10);
         digitalWrite(PIN_RADAR1_TRIG, LOW);
         //delayMicroseconds(2);
-        radar_time = pulseIn(PIN_RADAR1_ECHO, HIGH);
-        // radar_distance = radar_time * 340 / 20000;
-
-        float new_radar_dist = (radar_time/2) / 29.1;
+        radar1_time = pulseIn(PIN_RADAR1_ECHO, HIGH);
+        float new_radar1_dist = (radar1_time/2) / 29.1;
         
         // ignore overblown values, max distance measured is 4 meters
-        if (new_radar_dist < 400) {
-          radar_distance = new_radar_dist;
+        if (new_radar1_dist < 500) {
+          radar1_distance = new_radar1_dist;
         }
   }
+  if (t_now - timers.RADAR2_MEASURE >= TIMER_MEASURE_RADAR) {
+        timers.RADAR2_MEASURE = t_now;
+        digitalWrite(PIN_RADAR2_TRIG, LOW);
+        delayMicroseconds(2);
+        digitalWrite(PIN_RADAR2_TRIG, HIGH);
+        delayMicroseconds(10);
+        digitalWrite(PIN_RADAR2_TRIG, LOW);
+        radar2_time = pulseIn(PIN_RADAR2_ECHO, HIGH);
+        float new_radar2_dist = (radar2_time/2) / 29.1;
+        if (new_radar2_dist < 500) {
+          radar2_distance = new_radar2_dist;
+        }
+  }
+  Serial.print(radar1_distance);
+  Serial.print(" ");
+  Serial.print(radar2_distance);
 
-  // read piezo sensor
+  // piezo sensor
   piezo_reading = analogRead(PIN_PIEZO);
   if (piezo_reading > PIEZO_THRESHOLD) {
-    //Serial.print("piezo " + piezo_reading);
+     Serial.print(" true");
+  } else {
+    Serial.print(" false");
   }
 
-  // Serial.print("radar_distance ");
-  // Serial.print(radar_distance);
-
-  if (is_person_present(radar_distance, 300.0f)) {
+  // distance sensor
+  if (is_person_present(radar1_distance, 100.0f, radar1_last_distance, radar1_distances)) {
     digitalWrite(PIN_RELAY1, LOW);
-    digitalWrite(PIN_RELAY2, LOW);
-    Serial.print("PERSON_PRESENT ");
+    Serial.print(" true");
   } else {
     digitalWrite(PIN_RELAY1, HIGH);
-    digitalWrite(PIN_RELAY2, HIGH);
-    Serial.print("NO_PERSON ");
+    Serial.print(" false");
   }
-  
-  //sensorValue1 = analogRead(analogInPin);
-  //sensorValue2 = map(sensorValue1, 0, 1023, 0, 255);
-
-  //Serial.print(sensorValue1);
-  //Serial.print(" ");
+  if (is_person_present(radar2_distance, 100.0f, radar2_last_distance, radar2_distances)) {
+    digitalWrite(PIN_RELAY2, LOW);
+    Serial.print(" true");
+  } else {
+    digitalWrite(PIN_RELAY2, HIGH);
+    Serial.print(" false");
+  }
   Serial.print("\n");
-  
-  // wait 2 milliseconds before the next loop for the analog-to-digital
-  // converter to settle after the last reading:
-  delay(30);
 }
 
-bool is_person_present(float dist, float threshold_dist) {
+bool is_person_present(float dist, float threshold_dist, float current_last_distance, float *last_distances) {
     if (current_last_distance < LAST_DISTANCE_COUNT) {
         current_last_distance++;
         return dist < threshold_dist;
