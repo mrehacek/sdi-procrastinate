@@ -1,3 +1,30 @@
+/* RULES
+- the user needs to have typed at least 10 times AND cooldown of 10s before it can trigger again
+- 20% chance that each attack in microphone triggers the reactions:
+   - tv
+   - relay1
+   - relay2
+*/
+
+enum state
+{
+  CAN_TRIGGER,
+  CONSUME_TRIGGER,
+  TRIGGERED_AWAITING_RETURN,
+  TRIGGERED_COOLING_DOWN
+} state = CAN_TRIGGER;
+
+unsigned long int trigger_cooldown = 0;
+int user_keystrokes = 0;
+
+// lights
+boolean 
+  is_relay1_on = false
+  , is_relay2_on = false
+  , is_tv_on = false;
+  
+bool radar1_triggered = false, radar2_triggered = false;
+int await_radar_trigger = 0;
 
 const int PIN_PIEZO = A0,
 PIN_RELAY1 = 7,
@@ -10,7 +37,7 @@ PIN_RADAR2_TRIG = A4;
 
 // piezo
 int piezo_reading = 0;
-const int PIEZO_THRESHOLD = 1.5;
+const int PIEZO_THRESHOLD = 100;
 
 // ultrasonic sensors
 const unsigned int TIMER_MEASURE_RADAR = 0
@@ -32,10 +59,6 @@ struct timers
   unsigned long int RADAR1_MEASURE;
   unsigned long int RADAR2_MEASURE;
 } timers = { 0 };
-
-// lights
-boolean is_relay1_on = false
-  , is_relay2_on = false;
 
 ///////////////////////////////////////////////////////////////////////////////////
 
@@ -86,34 +109,98 @@ void loop() {
           radar2_distance = new_radar2_dist;
         }
   }
-  Serial.print(radar1_distance);
+  //Serial.print(radar1_distance);
   Serial.print(" ");
-  Serial.print(radar2_distance);
+  //Serial.print(radar2_distance);
 
   // piezo sensor
   piezo_reading = analogRead(PIN_PIEZO);
   if (piezo_reading > PIEZO_THRESHOLD) {
-     Serial.print(" true");
+    //Serial.print(" true");
   } else {
-    Serial.print(" false");
+    //Serial.print(" false");
   }
 
-  // distance sensor
+  // distance sensors
   if (is_person_present(radar1_distance, 100.0f, radar1_last_distance, radar1_distances)) {
+    radar1_triggered = true;
     digitalWrite(PIN_RELAY1, LOW);
-    Serial.print(" true");
+    //Serial.print(" true");
   } else {
     digitalWrite(PIN_RELAY1, HIGH);
-    Serial.print(" false");
+    //Serial.print(" false");
   }
   if (is_person_present(radar2_distance, 100.0f, radar2_last_distance, radar2_distances)) {
+    radar2_triggered = true;
     digitalWrite(PIN_RELAY2, LOW);
-    Serial.print(" true");
+    //Serial.print(" true");
   } else {
     digitalWrite(PIN_RELAY2, HIGH);
-    Serial.print(" false");
+    //Serial.print(" false");
   }
-  Serial.print("\n");
+  //Serial.print("\n");
+
+  /////////////////////////////////// STATE
+  switch (state) {
+    case CAN_TRIGGER:
+      Serial.print("CAN_TRIGGER ");
+      Serial.println(user_keystrokes);
+      // mic triggered
+      if (piezo_reading > PIEZO_THRESHOLD) {
+          user_keystrokes += 1;
+          if (user_keystrokes > 5 && random(100) > 50) {
+              state = CONSUME_TRIGGER;
+          }
+      }
+      break;
+
+    case CONSUME_TRIGGER:
+      Serial.println("CONSUME_TRIGGER");
+      switch (random(0,2)) {
+        case 0:
+          is_relay1_on = true;
+          is_relay2_on = true;
+          await_radar_trigger = 1;
+        case 1: 
+          is_tv_on = true;
+          await_radar_trigger = 2;
+      }
+      state = TRIGGERED_AWAITING_RETURN;
+      break;
+
+    case TRIGGERED_AWAITING_RETURN:
+      Serial.println("TRIGGERED_AWAITING_RETURN");
+      switch (await_radar_trigger) {
+        case 1:
+          if (radar1_triggered) {
+            trigger_cooldown = 3000;
+            state = TRIGGERED_COOLING_DOWN;
+          }
+          break;
+        case 2:
+          if (radar2_triggered) {
+            trigger_cooldown = 3000;
+            state = TRIGGERED_COOLING_DOWN;
+          }
+          break;
+        default:
+          break;
+      }
+      break;
+
+    case TRIGGERED_COOLING_DOWN:
+      Serial.print("TRIGGERED_COOLING_DOWN ");
+      Serial.println(trigger_cooldown);
+      trigger_cooldown -= 20;
+      if (trigger_cooldown > 300000) { // checking for underflow
+        await_radar_trigger = 0;
+        radar1_triggered = false;
+        radar2_triggered = false;
+        user_keystrokes = 0;
+        state = CAN_TRIGGER;
+      }
+      break;
+  }
 }
 
 bool is_person_present(float dist, float threshold_dist, float current_last_distance, float *last_distances) {
